@@ -1,0 +1,14 @@
+{
+  "apps": [
+    {
+      "name": "connector",
+      "script": "src/connector.js",
+      "instances": "max",
+      "autorestart": true,
+      "exec_mode" : "cluster",
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  ]
+}
