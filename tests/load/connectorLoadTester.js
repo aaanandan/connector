@@ -1,25 +1,31 @@
 const { io } = require("socket.io-client");
+const jwt = require('jsonwebtoken');
+const JWT_SECRET='thisisasamplesecret';
+
 
 const URL = "http://localhost:3000";
-const MAX_CLIENTS = 300;
+const MAX_CLIENTS = 600;
 const CLIENT_CREATION_INTERVAL_IN_MS = 50;
-const EMIT_INTERVAL_IN_MS = 100;
+const EMIT_INTERVAL_IN_MS = 200;
+const PLAYLOAD='playload';
 
 let clientCount = 0;
-let requestCount = 0;
+let requestSinceLastReport = 0, requestCount=0, responseCount=0;
 let lastReport = new Date().getTime();
 let packetsSinceLastReport = 0;
 
 const createClient = () => {
   
-  const transports = ["websocket"]
-  const socket = io(URL, {
+  const token = jwt.sign(PLAYLOAD, JWT_SECRET);
+  const transports = ["websocket"];
+  const socket = io.connect(URL, {
     transports,
+    query: {token}
   });
 
   setInterval(() => {
     socket.emit("register");
-    requestCount++;
+    requestSinceLastReport++;
   }, EMIT_INTERVAL_IN_MS);
 
   socket.on("register", () => {
@@ -43,11 +49,12 @@ const printReport = () => {
   const packetsPerSeconds = (
     packetsSinceLastReport / durationSinceLastReport
   ).toFixed(2);
-
-  console.log(`client: ${clientCount} ; response: ${packetsSinceLastReport}; request: ${requestCount}; pending:${requestCount-packetsSinceLastReport} perSecond ${packetsPerSeconds}`);
+  requestCount+=requestSinceLastReport;
+  responseCount+=packetsSinceLastReport;
+  console.log(`client: ${clientCount} ; response: ${packetsSinceLastReport}; request: ${requestSinceLastReport}; pending:${requestCount-responseCount} perSecond ${packetsPerSeconds}`);
 
   packetsSinceLastReport = 0;
-  requestCount=0;
+  requestSinceLastReport=0;
 
 
   lastReport = now;

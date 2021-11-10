@@ -7,10 +7,10 @@ const PLAYER_STREAM = "connector:player";
 // produce the message
 function pushToQueue(data){
     redisClient.xadd(PLAYER_STREAM, '*', 
-    'data', data, 
+    'data', JSON.stringify(data), 
     function (err) { 
             if (err) { 
-                logger.error('err');
+                logger.error(err);
                 //update redis error tables?
             };
         });

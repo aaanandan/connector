@@ -4,14 +4,16 @@ const config = require('./config/config');
 const logger = require('./config/logger');
 const { createAdapter } = require("@socket.io/cluster-adapter");
 const { setupWorker } = require("@socket.io/sticky");
-const redis = require('socket.io-redis');
+const redisSocketioAdapter = require('socket.io-redis');
 const process = require('process');
 
 const redisPort = config.redisPort || 6379;
 const redisHost = config.redisHost || config.DefaultHost;
 const pushToQueue = require('./stream');
+const getChanelName = require('./pubSub');
 const events = require('./connectorEvents');
-const redisNode = require("redis");
+const redis = require("redis");
+const jwt = require('jsonwebtoken');
 
 // const { stream } = require('./config/logger');
 // const httpServer = require('http').createServer(app);
@@ -48,7 +50,7 @@ const exitHandler = () => {
 };
 
 const unexpectedErrorHandler = (error) => {
-  logger.error(error);
+  logger.error('Error :', JSON.stringify(error));
   exitHandler();
 };
 
@@ -68,32 +70,46 @@ io.adapter(createAdapter());
 setupWorker(io);
 
 //add Redis adapter
-io.adapter(redis({ host: redisHost, port: redisPort }));
+io.adapter(redisSocketioAdapter({ host: redisHost, port: redisPort }));
 
-io.on(events.CONNECTION, (socket) => {
+
+io.use(function(socket, next){
+  if (socket.handshake.query && socket.handshake.query.token){
+    jwt.verify(socket.handshake.query.token, config.jwt.secret, function(err, decoded) {
+      if (err) return next(new Error('Authentication error'));
+      socket.decoded = decoded;
+      socket.handshake.query.userid="userid_,"+Date.now();
+      logger.info()
+      next();
+    });
+  }
+  else {
+    
+    logger.error(`Authentication error`);
+    next(new Error('Authentication error'));
+  }    
+}).on(events.CONNECTION, (socket) => {
 
   logger.info(`connection ${socket.id}`);
+
   //send to stream Q
   queueData.event=events.CONNECTION;
   queueData.socketid=socket.id;
+  queueData.userid='data.userid';
   queueData.clientip=socket.handshake.address;
   queueData.data=socket.handshake;
   pushToQueue(queueData);
 
+  const channelName = getChanelName(socket);
   //subscribe to resposne on pub-sub
-  const subscriber = redisNode.createClient();
-  const publisher = redisNode.createClient();
+  const subscriber = redis.createClient();
+  const publisher = redis.createClient();
 
-  subscriber.subscribe(events.CONNECTION);
+  subscriber.subscribe(channelName);
   subscriber.on("subscribe", function(channel, count) {
   logger.info(`Subscribed to ${channel} count :${count}`);  
+  });
 
-  //temp code, publish will happen from scheduler.
-  publisher.publish(channel, "SUCCESS");
-
-});
-
-  
   //used for load Testing
   socket.on(events.REGISTER, function (data) {
     queueData.event=events.REGISTER;
@@ -102,27 +118,13 @@ io.on(events.CONNECTION, (socket) => {
     queueData.userid='data.userid';
     queueData.data=data;
     pushToQueue(queueData);
-  
-    subscriber.subscribe(events.REGISTER);
-    subscriber.on("subscribe", function(channel, count) {
-    logger.info(`Subscribed to ${channel} count :${count}`);  
-
-    //temp code, publish will happen from scheduler.
-    publisher.publish(channel, "SUCCESS");
-    });
-
-   
     logger.info('registration Queued, Subscribed to response');
-  });
-
-
-
-
-  subscriber.on("message", function(channel, message) {
-    socket.emit(channel);
-    logger.info(`Response recevied for socketID ${socket.id} ${channel} message :${message}`);
-
-  });
-
-  
+    //temp code, publish will happen from scheduler. mentions registration is successful.
+    publisher.publish(channelName, events.REGISTER);
+    });
+    
+    subscriber.on("message", function(channel, message) {
+      socket.emit(message);
+      logger.info(`Response recevied for socketID ${socket.id} ${channel} message :${message}`);
+    });
 });
