@@ -1,13 +1,20 @@
 const { io } = require("socket.io-client");
 const jwt = require('jsonwebtoken');
+const logger = require("../../src/config/logger");
 const JWT_SECRET='thisisasamplesecret';
 
 
 const URL = "http://localhost:3000";
-const MAX_CLIENTS = 600;
-const CLIENT_CREATION_INTERVAL_IN_MS = 50;
-const EMIT_INTERVAL_IN_MS = 200;
+const MAX_CLIENTS = 1;
+const CLIENT_CREATION_INTERVAL_IN_MS = 2000;
+const EMIT_INTERVAL_IN_MS = 2000;
 const PLAYLOAD='playload';
+
+const registrationData = {
+  joinedUsing:'Cookies',
+  count:'50000',
+  tournamentId:'001',
+};  
 
 let clientCount = 0;
 let requestSinceLastReport = 0, requestCount=0, responseCount=0;
@@ -23,12 +30,27 @@ const createClient = () => {
     query: {token}
   });
 
-  setInterval(() => {
-    socket.emit("register");
+  // setInterval(() => {
+    socket.emit("tournamentStatus"); 
+    logger.info('Requested tournamentStatus');
     requestSinceLastReport++;
-  }, EMIT_INTERVAL_IN_MS);
+  // }, EMIT_INTERVAL_IN_MS);
 
-  socket.on("register", () => {
+  socket.on("tournamentStatus", (data) => {
+    packetsSinceLastReport++;
+    logger.info(`Received tournamentStatus ${JSON.stringify(data.name)}`);
+  });
+
+  socket.on("registrationOpen", () => {
+    logger.info(`Received registrationOpen  `);
+    packetsSinceLastReport++;
+    socket.emit("registeration",registrationData);
+    logger.info(`Requested registration  ${JSON.stringify(registrationData)}`);
+    requestSinceLastReport++;    
+  });
+  
+  socket.on("registeration", () => {
+    logger.info(`Received registeration status`);
     packetsSinceLastReport++;
   });
 

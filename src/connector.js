@@ -11,10 +11,11 @@ const redisPort = config.redisPort || 6379;
 const redisHost = config.redisHost || config.DefaultHost;
 const pushToQueue = require('./stream');
 const getChanelName = require('./pubSub');
-const events = require('./connectorEvents');
+const events = require('./gameEvents');
 const redis = require("redis");
 const jwt = require('jsonwebtoken');
-
+const ALL_PLAYERS ='all_players';
+const gameBoard = require('./gameBoard');
 // const { stream } = require('./config/logger');
 // const httpServer = require('http').createServer(app);
 
@@ -78,13 +79,12 @@ io.use(function(socket, next){
     jwt.verify(socket.handshake.query.token, config.jwt.secret, function(err, decoded) {
       if (err) return next(new Error('Authentication error'));
       socket.decoded = decoded;
-      socket.handshake.query.userid="userid_,"+Date.now();
+      socket.handshake.query.userid="userid_"+Date.now();
       logger.info()
       next();
     });
   }
-  else {
-    
+  else {    
     logger.error(`Authentication error`);
     next(new Error('Authentication error'));
   }    
@@ -95,7 +95,7 @@ io.use(function(socket, next){
   //send to stream Q
   queueData.event=events.CONNECTION;
   queueData.socketid=socket.id;
-  queueData.userid='data.userid';
+  queueData.userid=socket.handshake.query.userid;
   queueData.clientip=socket.handshake.address;
   queueData.data=socket.handshake;
   pushToQueue(queueData);
@@ -106,25 +106,45 @@ io.use(function(socket, next){
   const publisher = redis.createClient();
 
   subscriber.subscribe(channelName);
-  subscriber.on("subscribe", function(channel, count) {
-  logger.info(`Subscribed to ${channel} count :${count}`);  
-  });
+  subscriber.subscribe(ALL_PLAYERS);
+  
 
   //used for load Testing
-  socket.on(events.REGISTER, function (data) {
-    queueData.event=events.REGISTER;
+  socket.on(events.TOURNAMENT_STATUS, function (data) {
+    logger.info(`replying tournament status to : ${queueData.userid}`);
+      gameBoard.getTounamentStatus().then((status)=>{
+        socket.emit(events.TOURNAMENT_STATUS, status);    
+        if(status.userid){
+          socket.emit(events.REGISTRATION_OPEN, status);    
+        }
+        
+      });
+    });
+    
+  socket.on(events.REGISTERATION, function (data) {
+    queueData.event=events.REGISTERATION;
     // queueData.socketid=socket.id;
     // queueData.clientip=socket.handshake.address;
-    queueData.userid='data.userid';
+    // queueData.userid='data.userid';
     queueData.data=data;
     pushToQueue(queueData);
-    logger.info('registration Queued, Subscribed to response');
-    //temp code, publish will happen from scheduler. mentions registration is successful.
-    publisher.publish(channelName, events.REGISTER);
+    logger.info(`${queueData.userid} - registration queued`);    
     });
     
     subscriber.on("message", function(channel, message) {
+      // if(channel===ALL_PLAYERS) {
+      //   socket.emit(message);// emit common message to all Players
+      // }else{
+      //   // a update from processor about registration
+      //   if(message===events.REGISTRATION){
+      //     //get the status from redis JSON and send to player.
+      //     gameBoard.getRegistrationStatus().then((status)=>{
+      //       socket.emit(events.REGISTRATION,status);
+      //     });           
+      //   }        
+      // }
       socket.emit(message);
-      logger.info(`Response recevied for socketID ${socket.id} ${channel} message :${message}`);
+      logger.info(`${queueData.userid}'s ${message} update sent`);
+
     });
 });

@@ -3,7 +3,7 @@
     {
       "name": "connector",
       "script": "src/connector.js",
-      "instances": "max",
+      "instances": "1",
       "autorestart": true,
       "exec_mode" : "cluster",
       "env": {
