@@ -11,10 +11,11 @@
     "node": ">=12.0.0"
   },
   "scripts": {
-    "start": "pm2 start ecosystem.config.json --no-daemon",
+    "start": "pm2 start ./ecosystem.config.json --no-daemon",
     "dev": "cross-env NODE_ENV=development nodemon src/index.js",
+    "test": "(yarn start) && (cd .. && cd processor && yarn start ) & (cd .. && cd scheduler && yarn start)",
     "test:load": "node ./tests/load/connectorLoadTester.js",
-    "test": "jest -i --colors --verbose --detectOpenHandles",
+    "test-rm": "jest -i --colors --verbose --detectOpenHandles",
     "test:watch": "jest -i --watchAll",
     "coverage": "jest -i --coverage",
     "coverage:coveralls": "jest -i --coverage --coverageReporters=text-lcov | coveralls",
@@ -80,6 +81,7 @@
     "path": "^0.12.7",
     "recluster": "^1.0.0",
     "redis-json": "^6.0.2",
+    "should": "^13.2.3",
     "socket.io": "^4.3.2",
     "socket.io-redis": "^6.1.1",
     "swagger-jsdoc": "^6.0.8",
