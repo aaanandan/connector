@@ -9,9 +9,9 @@ const process = require('process');
 
 const redisPort = config.redisPort || 6379;
 const redisHost = config.redisHost || config.DefaultHost;
-const pushToQueue = require('./stream');
+const stream = require('./stream');
 const getChanelName = require('./pubSub');
-const events = require('./gameEvents');
+const gameEvents = require('./gameEvents');
 const redis = require("redis");
 const jwt = require('jsonwebtoken');
 const ALL_PLAYERS = 'all_players';
@@ -29,7 +29,6 @@ let queueData = {
   userid: null,
   data: null
 };
-
 
 mongoose.connect(config.mongoose.url, config.mongoose.options).then(() => {
   logger.info('Connected to MongoDB');
@@ -73,7 +72,6 @@ setupWorker(io);
 //add Redis adapter
 io.adapter(redisSocketioAdapter({ host: redisHost, port: redisPort }));
 
-
 io.use(function (socket, next) {
   if (socket.handshake.query && socket.handshake.query.token) {
     jwt.verify(socket.handshake.query.token, config.jwt.secret, function (err, decoded) {
@@ -88,17 +86,17 @@ io.use(function (socket, next) {
     logger.error(`Authentication error`);
     next(new Error('Authentication error'));
   }
-}).on(events.CONNECTION, (socket) => {
+}).on(gameEvents.CONNECTION, (socket) => {
 
   logger.info(`connection ${socket.id}`);
 
   //send to stream Q
-  queueData.event = events.CONNECTION;
+  queueData.event = gameEvents.CONNECTION;
   queueData.socketid = socket.id;
   queueData.userid = socket.handshake.query.userid;
   queueData.clientip = socket.handshake.address;
   queueData.data = socket.handshake;
-  pushToQueue(queueData);
+  stream.pushToQueue(queueData);
 
   const channelName = getChanelName(socket);
   //subscribe to resposne on pub-sub
@@ -110,43 +108,46 @@ io.use(function (socket, next) {
 
 
   //used for load Testing
-  socket.on(events.TOURNAMENT_STATUS, function () {
+  socket.on(gameEvents.TOURNAMENT_STATUS, function () {
     logger.info(`replying tournament status to : ${queueData.userid}`);
     console.log(`replying tournament status to : ${queueData.userid}`);
 
     gameBoard.getTounamentStatus().then((data) => {
       console.log(`gameBoard.getTounamentStatus() :`, data);
-      socket.emit(events.TOURNAMENT_STATUS, data);
+      socket.emit(gameEvents.TOURNAMENT_STATUS, data);
       // if (data.userid) {
       //   socket.emit(events.REGISTRATION_OPEN, { id: status.id, name: status.name });
       // }
     });
   });
 
-  socket.on(events.REGISTERATION, function (data) {
-    queueData.event = events.REGISTERATION;
+  socket.on(gameEvents.REGISTERATION, function (data) {
+    queueData.event = gameEvents.REGISTERATION;
     // queueData.socketid=socket.id;
     // queueData.clientip=socket.handshake.address;
     // queueData.userid='data.userid';
     queueData.data = data;
-    pushToQueue(queueData);
+    stream.pushToQueue(queueData);
     logger.info(`${queueData.userid} - registration queued`);
   });
 
   subscriber.on("message", function (channel, message) {
-    // if(channel===ALL_PLAYERS) {
-    //   socket.emit(message);// emit common message to all Players
-    // }else{
-    //   // a update from processor about registration
-    //   if(message===events.REGISTRATION){
-    //     //get the status from redis JSON and send to player.
-    //     gameBoard.getRegistrationStatus().then((status)=>{
-    //       socket.emit(events.REGISTRATION,status);
-    //     });           
-    //   }        
-    // }
-    socket.emit(message);
-    logger.info(`${queueData.userid}'s ${message} update sent`);
-
+    if (channel == ALL_PLAYERS) {
+      socket.emit(message);// emit common message to all Players
+      logger.info(`${queueData.userid}'s ${message} update sent`);
+      // if (message === gameEvents.CANCELED_TOURNAMENT) {
+      //   queueData.event = gameEvents.CANCELED_TOURNAMENT;
+      //   logger.info('Qeueing canceled', JSON.stringify(queueData));
+      //   stream.pushToQueue(queueData);
+      // }
+    } else {
+      // a update from processor about indiduvial users
+      // if (message === gameEvents.REGISTRATION) {
+      //get the status from redis JSON and send to player.
+      // gameBoard.getRegistrationStatus().then((status) => {
+      //   socket.emit(events.REGISTRATION, status);
+      // });
+      // }
+    }
   });
 });
