@@ -1,7 +1,7 @@
 const events = {
     CONNECTION: 'connection',
     TOURNAMENT_STATUS: 'tournamentStatus',
-    REGISTERATION: 'registeration',
+    REGISTRATION: 'registration',
     PLAYER_ANSWER: 'playerAnswer',
     REJOIN: 'rejoin',
     REGISTRATION_OPEN: 'registrationOpen',
@@ -16,7 +16,10 @@ const events = {
     REFUND: 'refund',
     USE_POWERUP: 'usePowerUp',
     ROUND_RESULT: 'roundResult',
-    LEADER_BOARD: 'leaderBoard'
+    LEADER_BOARD: 'leaderBoard',
+    ALREADY_REGISTRED: 'alreadyRegistred',
+    ALREADY_PLAYED_USING_COOKIES: 'alreadyPlayedUsingCookies'
+
 }
 
 module.exports = events;

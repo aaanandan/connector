@@ -26,7 +26,7 @@ let queueData = {
   event: null,
   socketid: null,
   clientip: null,
-  userid: null,
+  playerId: null,
   data: null
 };
 
@@ -77,7 +77,7 @@ io.use(function (socket, next) {
     jwt.verify(socket.handshake.query.token, config.jwt.secret, function (err, decoded) {
       if (err) return next(new Error('Authentication error'));
       socket.decoded = decoded;
-      socket.handshake.query.userid = "userid_" + Date.now();
+      // socket.handshake.query.playerId = "playerId_" + Date.now();
       logger.info()
       next();
     });
@@ -93,61 +93,96 @@ io.use(function (socket, next) {
   //send to stream Q
   queueData.event = gameEvents.CONNECTION;
   queueData.socketid = socket.id;
-  queueData.userid = socket.handshake.query.userid;
+  queueData.playerId = socket.handshake.query.playerId;
   queueData.clientip = socket.handshake.address;
   queueData.data = socket.handshake;
-  stream.pushToQueue(queueData);
+
+  //no need to push to Q
+  // logger.info(`pushing to Q ${queueData.playerId}`);
+  // stream.pushToQueue(queueData);
 
   const channelName = getChanelName(socket);
+  logger.info(`channelName ${channelName}`);
   //subscribe to resposne on pub-sub
   const subscriber = redis.createClient();
   const publisher = redis.createClient();
 
   subscriber.subscribe(channelName);
   subscriber.subscribe(ALL_PLAYERS);
-
+  logger.info(`subscribed to channelName ${channelName} and ${ALL_PLAYERS}`);
 
   //used for load Testing
   socket.on(gameEvents.TOURNAMENT_STATUS, function () {
-    logger.info(`replying tournament status to : ${queueData.userid}`);
-    console.log(`replying tournament status to : ${queueData.userid}`);
-
-    gameBoard.getTounamentStatus().then((data) => {
-      console.log(`gameBoard.getTounamentStatus() :`, data);
+    logger.info(`replying tournament status to : ${queueData.playerId}`);
+    gameBoard.getTournamentStatus().then(data => {
+      // logger.info('getTournamentStatus' + JSON.stringify(data))
       socket.emit(gameEvents.TOURNAMENT_STATUS, data);
-      // if (data.userid) {
+      // if (data.playerId) {
       //   socket.emit(events.REGISTRATION_OPEN, { id: status.id, name: status.name });
       // }
     });
   });
 
-  socket.on(gameEvents.REGISTERATION, function (data) {
-    queueData.event = gameEvents.REGISTERATION;
-    // queueData.socketid=socket.id;
-    // queueData.clientip=socket.handshake.address;
-    // queueData.userid='data.userid';
-    queueData.data = data;
+  socket.on(gameEvents.REGISTRATION, function (data) {
+    queueData.event = gameEvents.REGISTRATION;
+    queueData.registrationData = data;
+    logger.info('Registration request recived from player ' + queueData.playerId);
     stream.pushToQueue(queueData);
-    logger.info(`${queueData.userid} - registration queued`);
+    logger.info(`${queueData.playerId} - registration queued`);
   });
 
+  async function getTournamentDetails() {
+    return gameBoard.getTournamentStatus().then(data => {
+      return { tournamentName: data.tournamentName, tournamentId: data.tournamentId, playerId: queueData.playerId }
+    })
+  }
   subscriber.on("message", function (channel, message) {
-    if (channel == ALL_PLAYERS) {
-      socket.emit(message);// emit common message to all Players
-      logger.info(`${queueData.userid}'s ${message} update sent`);
-      // if (message === gameEvents.CANCELED_TOURNAMENT) {
-      //   queueData.event = gameEvents.CANCELED_TOURNAMENT;
-      //   logger.info('Qeueing canceled', JSON.stringify(queueData));
-      //   stream.pushToQueue(queueData);
-      // }
+    if (channel === ALL_PLAYERS) {
+      getTournamentDetails().then(tournamentDetails => {
+        logger.info(`Broadcast message :${message}`);
+        if (message === gameEvents.END_TOURNAMENT || message === gameEvents.REFUND) {
+          logger.info(`Cleaning up socket connection.. ${queueData.playerId}`);
+          socket.emit(message, tournamentDetails);
+          socket.emit(gameEvents.LEADER_BOARD, tournamentDetails);
+          subscriber.unsubscribe(getChanelName(socket));
+          subscriber.unsubscribe(ALL_PLAYERS);
+          // socket.close();
+        }
+        if (message === gameEvents.START_ROUND) {
+          gameBoard.getRoundData().then(roundData => {
+            socket.emit(message, { ...tournamentDetails, ...roundData });
+          });
+        }
+        if (message === gameEvents.ROUND_RESULT) {
+          gameBoard.getRoundData().then(roundData => {
+            socket.emit(message, { ...tournamentDetails, ...roundData });
+          });
+
+        }
+        else {
+          socket.emit(message, tournamentDetails);
+        }
+      });
     } else {
       // a update from processor about indiduvial users
-      // if (message === gameEvents.REGISTRATION) {
-      //get the status from redis JSON and send to player.
-      // gameBoard.getRegistrationStatus().then((status) => {
-      //   socket.emit(events.REGISTRATION, status);
-      // });
-      // }
+      if (message === gameEvents.REGISTRATION) {
+        // get the status from redis JSON and send to player.
+        gameBoard.getRegistrationStatus(queueData.playerId).then((status) => {
+          socket.emit(gameEvents.REGISTRATION, status);
+          logger.info(`${queueData.playerId}'s ${message} update sent`);
+        });
+      }
+      if (message === gameEvents.ALREADY_REGISTRED) {
+        // get the status from redis JSON and send to player.
+        gameBoard.getRegistrationStatus(queueData.playerId).then((status) => {
+          socket.emit(gameEvents.ALREADY_REGISTRED, status);
+          logger.info(`${queueData.playerId}'s ${message} update sent`);
+        });
+      }
+      if (message === gameEvents.ALREADY_PLAYED_USING_COOKIES) {
+        socket.emit(gameEvents.ALREADY_PLAYED_USING_COOKIES);
+        logger.info(`${queueData.playerId}'s ${message} update sent`);
+      }
     }
   });
 });
